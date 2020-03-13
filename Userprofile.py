@@ -15,6 +15,7 @@ class User():
 		self.isChooseSize = False
 		self.isChooseType = False
 		self.checkPic = False
+		self.orderDetail = []
 
 	def resetdata(self):
 		self.query_price = False
@@ -28,6 +29,9 @@ class User():
 		self.isChooseSize = False
 		self.isChooseType = False
 		self.checkPic = False
+
+	def resetOrdetail(self):
+		self.orderDetail = []
 
 	def set_queryprice(self, booleanvalue):
 		self.query_price = booleanvalue

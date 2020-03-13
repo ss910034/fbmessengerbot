@@ -7,16 +7,14 @@ from templates import *
 import random
 import json
 import requests
+from FBToken import *
 
 ########################################################
 ## 設置事件終點、通關密碼和認證密碼
 app = Flask(__name__)
-ACCESS_TOKEN = 'EAAIXSitTPw4BAG7g3DYuHVZBSoaY1agoDKOxB1fPpgVRKxJz4v4q2guIbIkiAGo3bDaS33ev43PLiRZBPUc6F0JZAnZAaNdIyBTSEbPzYpTtqv9NGkPtxJ2mXfuOwtY32JMUsMAjIYfsVoqZCvAYDxWrk4gjvtSX4VZBmDZC7HcegZDZD'
-VERIFY_TOKEN = 'm10460074'
 page = Page(ACCESS_TOKEN)
 allProduct = query_AllProduct()
 profile = {}
-orderDetail=[]
 
 ## 設置webhook
 @app.route("/", methods=['GET', 'POST'])
@@ -71,16 +69,15 @@ page.show_persistent_menu([Template.ButtonPostBack('重新查詢', 'REFRESH')])
 
 @page.callback(['dealCart'], types=['POSTBACK'])
 def callback_picked_genre(payload, event):
-    global orderDetail
     global profile
     sender_id = event.sender_id
     count = 1
     cartSum = 0
     text = ''
-    if len(orderDetail):
-        for i in orderDetail:
+    if len(profile[sender_id].orderDetail):
+        for i in profile[sender_id].orderDetail:
             item = i.split(',')
-            text = str(count)+".\n商品名稱："+item[1]+"\n顏色尺寸："+item[2]+"\n數量："+item[3]+"\n金額小計："+str(int(item[3])*int(item[4]))
+            text += str(count)+".\n商品名稱："+item[1]+"\n顏色尺寸："+item[2]+"\n數量："+item[3]+"\n金額小計："+str(int(item[3])*int(item[4]))
             text += '\n-------------\n'
             count = count + 1
             cartSum += int(item[3])*int(item[4])
@@ -93,13 +90,12 @@ def callback_picked_genre(payload, event):
 
 @page.callback(['deal'], types=['POSTBACK'])
 def callback_picked_genre(payload, event):
-    global orderDetail
     global profile
     sender_id = event.sender_id
     user_profile = page.get_user_profile(event.sender_id)
     finalOrder = ''
     my_data={}
-    for item in orderDetail:
+    for item in profile[sender_id].orderDetail:
         finalOrder+=item+';'
 
     amount = '80,'+str(int(profile[sender_id].product_price)*int(profile[sender_id].product_Num))
@@ -119,34 +115,40 @@ def callback_picked_genre(payload, event):
     page.send(sender_id, '還有什麼能為您服務的嗎？', quick_replies=[{'title': '商品詢問', 'payload': 'Y'},
                                                 {'title': '訂購商品', 'payload': 'Y'}])
     profile[sender_id].resetdata()
+    profile[sender_id].resetOrdetail()
 
 @page.callback(['Cart'], types=['POSTBACK'])
 def callback_picked_genre(payload, event):
-    global orderDetail
     global profile
     sender_id = event.sender_id
     user_profile = page.get_user_profile(event.sender_id)
     count = 1
     cartSum = 0
     text = ''
-    if len(orderDetail):
-        for i in orderDetail:
+    if len(profile[sender_id].orderDetail):
+        for i in profile[sender_id].orderDetail:
             item = i.split(',')
-            text = str(count)+".\n商品名稱："+item[1]+"\n顏色尺寸："+item[2]+"\n數量："+item[3]+"\n金額小計："+str(int(item[3])*int(item[4]))
+            text += str(count)+".\n商品名稱："+item[1]+"\n顏色尺寸："+item[2]+"\n數量："+item[3]+"\n金額小計："+str(int(item[3])*int(item[4]))
             text += '\n-------------\n'
             count = count + 1
             cartSum += int(item[3])*int(item[4])
         text += '運費：＄60\n總金額：'+str(60+cartSum)
+        page.send(sender_id, text)
+        page.send(sender_id, Template.Generic([
+                Template.GenericElement('是否購買',
+                            buttons=[Template.ButtonPostBack('送出訂單', "deal"),
+                                    Template.ButtonPostBack('繼續購物', "continueBuy")])]))  
     else:
-        text = '購物車還是空的呢～快去購物吧！！'
-    page.send(sender_id, text)
-    page.send(sender_id, Template.Generic([
-            Template.GenericElement("歡迎來到 龜 婦 の 生 活 😊\n您今天來到這裡有什麼能替您服務的嗎？",
+        text = '購物車還是空的呢～\n快去購物吧！！'
+        page.send(sender_id, Template.Generic([
+            Template.GenericElement(text,
                           buttons=[
                               Template.ButtonPostBack('商品詢問', "query1"),
                               Template.ButtonPostBack('訂購商品', "order1"),
                               Template.ButtonPostBack('查看購物車', "Cart")
                           ])]))
+    
+    
 
 
 @page.callback(['product(.+)'])
@@ -156,11 +158,32 @@ def callback_clicked_button(payload, event):
     if profile[sender_id].query_price == True or profile[sender_id].buy == True:
         if message in allProduct.keys():
             profile[sender_id].product_price = allProduct[message][3]
-            page.send(sender_id, "這個商品的價格為："+allProduct[message][3])
-            text = '是否購買此商品～'
+            page.send(sender_id, "商品敘述："+allProduct[message][7])
+            page.send(sender_id, Template.Generic([
+                Template.GenericElement(message,
+                          subtitle="商品價格："+profile[sender_id].product_price,
+                          buttons=[
+                              Template.ButtonPostBack("我要訂購", "wantToBuy"),
+                              Template.ButtonPostBack("我考慮一下", "ddd")
+                          ])]))
+            # page.send(sender_id, "這個商品的價格為："+allProduct[message][3])
+            # text = '是否購買此商品～'
             profile[sender_id].product_Name = message
-            page.send(sender_id, text, quick_replies=[{'title': '我要訂購', 'payload': 'Buy'},
-                                                    {'title': '我考慮一下', 'payload': 'confused'}])
+            # page.send(sender_id, text, quick_replies=[{'title': '我要訂購', 'payload': 'Buy'},
+            #                                         {'title': '我考慮一下', 'payload': 'confused'}])
+
+@page.callback(['wantToBuy'])
+def callback_clicked_button(payload, event):
+    sender_id = event.sender_id
+    productType = allProduct[profile[sender_id].product_Name][2].split(',')
+    data = []
+    for i in productType:
+        data_json = json.loads('{"title": "'+ i +'", "payload": "'+ i +'"}')
+        data.append(data_json)
+    profile[sender_id].isChooseType = True
+    if profile[sender_id].buy:
+        profile[sender_id].set_buy(False)
+    page.send(sender_id, "商品的款式您要選擇？", quick_replies=data)
 
 @page.callback(['continueBuy'])
 def callback_clicked_button(payload, event):
@@ -169,14 +192,6 @@ def callback_clicked_button(payload, event):
     profile[sender_id].set_queryprice(True)
     text = '請輸入您想詢問的商品名稱為何？'
     page.send(sender_id, text)
-
-@page.callback(['cancelCart'])
-def callback_clicked_button(payload, event):
-    sender_id = event.sender_id
-    profile[sender_id].resetdata()
-    page.send(sender_id, '有什麼能為您服務的嗎？', quick_replies=[{'title': '商品詢問', 'payload': 'Y'},
-                                                {'title': '訂購商品', 'payload': 'Y'}])
-
 
 @page.callback(['order1'])
 def callback_clicked_button(payload, event):
@@ -199,9 +214,15 @@ def callback_clicked_button(payload, event):
 def message_handler(event):
     global profile
     global allProduct
-    global orderDetail
     sender_id = event.sender_id
     message = event.message_text
+    
+
+    ## 如果程式重啟，判斷有沒有使用者資料，若無，則initial使用者資訊
+    if not profile:
+        user_profile = page.get_user_profile(event.sender_id) # return dict
+        profile[sender_id] = User(sender_id, user_profile)
+
     ## 讓機器人在使用者傳送訊息後立刻已讀訊息並開啟輸入指示器(點點點符號)
     page.mark_seen(sender_id)
     page.typing_on(sender_id)
@@ -220,6 +241,13 @@ def message_handler(event):
     elif profile[sender_id].buy == True and message != '我要訂購':
         if message in allProduct.keys():
             profile[sender_id].product_price = allProduct[message][3]
+            page.send(sender_id, Template.Generic([
+                Template.GenericElement(message,
+                          subtitle="商品價格："+profile[sender_id].product_price+"\n商品敘述："+allProduct[message][7],
+                          buttons=[
+                              Template.ButtonPostBack("我要訂購", "12"),
+                              Template.ButtonPostBack("我考慮一下", "ddd")
+                          ])]))
             page.send(sender_id, "這個商品的價格為："+allProduct[message][3])
             text = '是否購買此商品～'
             profile[sender_id].product_Name = message
@@ -254,6 +282,8 @@ def message_handler(event):
             data_json = json.loads('{"title": "'+ i +'", "payload": "'+ i +'"}')
             data.append(data_json)
         profile[sender_id].isChooseType = True
+        if profile[sender_id].buy:
+            profile[sender_id].set_buy(False)
         page.send(sender_id, "商品的款式您要選擇？", quick_replies=data)
 
     elif profile[sender_id].isChooseType == True:
@@ -281,7 +311,7 @@ def message_handler(event):
         profile[sender_id].product_Num = message
         profile[sender_id].isChooseNum = False
         orderList = allProduct[profile[sender_id].product_Name][1]+','+profile[sender_id].product_Name+','+profile[sender_id].product_Size+'/'+profile[sender_id].product_Type+','+profile[sender_id].product_Num+','+profile[sender_id].product_price
-        orderDetail.append(orderList)
+        profile[sender_id].orderDetail.append(orderList)
         text = "已將商品/顏色/尺寸/數量："+profile[sender_id].product_Name+"/"+profile[sender_id].product_Type+"/"+profile[sender_id].product_Size+"/"+profile[sender_id].product_Num+"\n加到購物車囉,接下來呢？"
         page.send(sender_id, text)
         page.send(sender_id, Receipttemplate(recipient_name=profile[sender_id].product_Name, order_number='temp', currency='TWD', payment_method='銀行匯款',
@@ -297,15 +327,8 @@ def message_handler(event):
                               Template.ButtonPostBack('查看購物車', "Cart")
                           ])]))
 
-        # text = "您的訂單如下：\n訂購商品："+profile[sender_id].product_Name+"\n商品款式："+profile[sender_id].product_Type+"\n商品尺寸："+profile[sender_id].product_Size+"\n此次訂購價格："+str(int(profile[sender_id].product_price)*int(profile[sender_id].product_Num))
-        # page.send(sender_id, text)
-        # text = "確認訂單無誤？"
-        # page.send(sender_id, text, quick_replies=[{'title': '送出訂單', 'payload': 'deal'},
-                                                  # {'title': '重新訂購～', 'payload': 'reorder'}])
-
-
     elif message == '我考慮一下' or message == '重新訂購～':
-        profile[sender_id].resetdata()
+        # profile[sender_id].resetdata()
         page.send(sender_id, '有什麼能為您服務的嗎？', quick_replies=[{'title': '商品詢問', 'payload': 'Y'},
                                                 {'title': '訂購商品', 'payload': 'Y'}])
     elif profile[sender_id].query_price == True:
@@ -337,17 +360,6 @@ def message_handler(event):
                 page.send(sender_id, '您確定要查詢的商品名稱正確嗎～\n我還有什麼能為您服務的嗎？', quick_replies=[{'title': '商品詢問', 'payload': 'Y'},
                                                 {'title': '訂購商品', 'payload': 'Y'}])
                 profile[sender_id].query_price = False
-            # for key in allProduct.keys():
-            #     if key.find(message) != -1:
-            #         has = True
-            #         data_json = json.loads('{"title": "'+ key +'", "payload": "'+ key +'"}')
-            #         data.append(data_json)
-            # if has == True: 
-            #     page.send(sender_id, "莫非您想查詢的商品是？", quick_replies=data)
-            # else:
-            #     page.send(sender_id, '您確定要查詢的商品名稱正確嗎～\n我還有什麼能為您服務的嗎？', quick_replies=[{'title': '商品詢問', 'payload': 'Y'},
-            #                                     {'title': '訂購商品', 'payload': 'Y'}])
-            #     profile[sender_id].query_price = False
     elif message != '送出訂單':
         page.send(sender_id, '您確定要查詢的商品名稱正確嗎～\n我還有什麼能為您服務的嗎？', quick_replies=[{'title': '商品詢問', 'payload': 'Y'},
                                                 {'title': '訂購商品', 'payload': 'Y'}])
